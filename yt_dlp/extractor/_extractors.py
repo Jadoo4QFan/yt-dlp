@@ -21,6 +21,7 @@ from .youtube import (  # Youtube is moved to the top to improve performance
     YoutubeYtBeIE,
     YoutubeYtUserIE,
     YoutubeWatchLaterIE,
+    YoutubeShortsAudioPivotIE
 )
 
 from .abc import (
@@ -232,6 +233,7 @@ from .brightcove import (
 )
 from .businessinsider import BusinessInsiderIE
 from .buzzfeed import BuzzFeedIE
+from .buzzvideo import BuzzVideoIE
 from .byutv import BYUtvIE
 from .c56 import C56IE
 from .cableav import CableAVIE
@@ -649,6 +651,7 @@ from .googlepodcasts import (
 )
 from .googlesearch import GoogleSearchIE
 from .gopro import GoProIE
+from .goplay import GoPlayIE
 from .goshgay import GoshgayIE
 from .gotostage import GoToStageIE
 from .gputechconf import GPUTechConfIE
@@ -891,6 +894,10 @@ from .lnkgo import (
 )
 from .localnews8 import LocalNews8IE
 from .lovehomeporn import LoveHomePornIE
+from .loom import (
+    LoomIE
+    LoomFolderIE
+)
 from .lrt import (
     LRTVODIE,
     LRTStreamIE
@@ -1091,6 +1098,7 @@ from .nebula import (
     NebulaChannelIE,
 )
 from .nerdcubed import NerdCubedFeedIE
+from .nest import NestIE
 from .netzkino import NetzkinoIE
 from .neteasemusic import (
     NetEaseMusicIE,
@@ -1466,6 +1474,7 @@ from .reuters import ReutersIE
 from .reverbnation import ReverbNationIE
 from .rice import RICEIE
 from .rmcdecouverte import RMCDecouverteIE
+from .roblox import RobloxIE
 from .rockstargames import RockstarGamesIE
 from .rokfin import (
     RokfinIE,
@@ -1617,6 +1626,7 @@ from .sky import (
 from .slideshare import SlideshareIE
 from .slideslive import SlidesLiveIE
 from .slutload import SlutloadIE
+from .smotrim import SmotrimIE
 from .snotr import SnotrIE
 from .sohu import SohuIE
 from .sonyliv import (
@@ -1799,6 +1809,7 @@ from .tiktok import (
     TikTokEffectIE,
     TikTokTagIE,
     TikTokVMIE,
+    TikTokLiveIE,
     DouyinIE,
 )
 from .tinypic import TinyPicIE
@@ -2021,7 +2032,6 @@ from .vidio import (
     VidioLiveIE
 )
 from .vidlii import VidLiiIE
-from .vier import VierIE, VierVideosIE
 from .viewlift import (
     ViewLiftIE,
     ViewLiftEmbedIE,
@@ -2141,6 +2151,7 @@ from .whowatch import WhoWatchIE
 from .wistia import (
     WistiaIE,
     WistiaPlaylistIE,
+    WistiaChannelIE,
 )
 from .worldstarhiphop import WorldStarHipHopIE
 from .wppilot import (

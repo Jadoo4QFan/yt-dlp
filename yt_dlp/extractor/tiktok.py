@@ -11,6 +11,7 @@ from ..utils import (
     HEADRequest,
     LazyList,
     UnsupportedError,
+    UserNotLive,
     get_element_by_id,
     get_first,
     int_or_none,
@@ -25,7 +26,7 @@ from ..utils import (
 
 
 class TikTokBaseIE(InfoExtractor):
-    _APP_VERSIONS = [('20.9.3', '293'), ('20.4.3', '243'), ('20.2.1', '221'), ('20.1.2', '212'), ('20.0.4', '204')]
+    _APP_VERSIONS = [('26.1.3', '260103'), ('26.1.2', '260102'), ('26.1.1', '260101'), ('25.6.2', '250602')]
     _WORKING_APP_VERSION = None
     _APP_NAME = 'trill'
     _AID = 1180
@@ -33,7 +34,6 @@ class TikTokBaseIE(InfoExtractor):
     _UPLOADER_URL_FORMAT = 'https://www.tiktok.com/@%s'
     _WEBPAGE_HOST = 'https://www.tiktok.com/'
     QUALITIES = ('360p', '540p', '720p', '1080p')
-    _session_initialized = False
 
     @staticmethod
     def _create_url(user_id, video_id):
@@ -42,12 +42,6 @@ class TikTokBaseIE(InfoExtractor):
     def _get_sigi_state(self, webpage, display_id):
         return self._parse_json(get_element_by_id(
             'SIGI_STATE|sigi-persisted-data', webpage, escape_value=False), display_id)
-
-    def _real_initialize(self):
-        if self._session_initialized:
-            return
-        self._request_webpage(HEADRequest('https://www.tiktok.com'), None, note='Setting up session', fatal=False)
-        TikTokBaseIE._session_initialized = True
 
     def _call_api_impl(self, ep, query, manifest_app_version, video_id, fatal=True,
                        note='Downloading API JSON', errnote='Unable to download API page'):
@@ -289,7 +283,7 @@ class TikTokBaseIE(InfoExtractor):
             'uploader_url': user_url,
             'track': music_track,
             'album': str_or_none(music_info.get('album')) or None,
-            'artist': music_author,
+            'artist': music_author or None,
             'timestamp': int_or_none(aweme_detail.get('create_time')),
             'formats': formats,
             'subtitles': self.extract_subtitles(aweme_detail, aweme_id),
@@ -374,6 +368,84 @@ class TikTokBaseIE(InfoExtractor):
                 'Referer': webpage_url
             }
         }
+        def get_replies_of_tiktok_comment(self, aweme_id, comment_id):
+    reply_json = self._download_json(
+        f'https://api-h2.tiktokv.com/aweme/v1/comment/list/reply/?comment_id={comment_id}&item_id={aweme_id}&cursor=0&count=20&insert_ids=&top_ids=&channel_id=0', 
+        data=b'', fatal=False, note='Checking if comment has any replies...') or {} 
+    has_more = traverse_obj(reply_json, ('has_more'))
+    commentsnum = len(reply_json['comments'])
+
+    for i in range(has_more) and commentsnum != 0:
+        if i == 0:
+            comment_data = reply_json
+            note='Comment downloading completed!'
+        else:
+            comment_data = self._download_json(
+                f'https://api-h2.tiktokv.com/aweme/v1/comment/list/reply/?comment_id={comment_id}&item_id={aweme_id}&count=50&insert_ids=&top_ids=&channel_id=0', 
+                data=b'', fatal=False, query={'cursor': i + 50}, note='Downloading replies...') or {}
+        for comment in comment_data['comments']:
+            yield {
+                'id': comment.get('cid'), # comment ID
+                'alt_id': comment.get('aweme_id'), # "aweme" id, seems to be tiktok's universal id, we might swap them
+                'text': comment.get('text'),
+                'like_count': comment.get('digg_count'),
+                'timestamp': comment.get('create_time'),
+                'is_pinned': comment.get('author_pin'), # booleen
+                'is_hidden': comment.get('no_show'), # booleen
+                'lang': comment.get('comment_language'), # 2 letter language code: en, jp, fr, etc. shortened to lang as its more common and saves disk space
+                'text_extra': comment.get('text_extra'), # includes hashtags, most likely same format as in video metadata
+                'reply_count': comment.get('reply_comment_total'), 
+                'author_id': comment['user']['uid'], # user id (possibly aweme id)
+                'author': comment['user']['nickname'], # user nickname
+                'author_label': comment.get('label_text'), 
+                'author_handle': comment['user']['unique_id'], # user handle, @ultimatemariofan101 for example without the at symbol
+                'author_thumbnail': comment['user']['avatar_larger']['url_list'][0], 
+                'author_full_info': comment.get('user'),
+            }
+
+        def _get_comments(self, aweme_id):
+            # references: https://gist.github.com/theblazehen/25c18eda95165e65fc5159942fb5e4db (uses v1 api), https://github.com/yt-dlp/yt-dlp/issues/5037 (new api documentation)
+            comment_json = self._download_json(
+            f'https://api-h2.tiktokv.com/aweme/v2/comment/list/?aweme_id={aweme_id}&cursor=0&count=50&forward_page_type=1', 
+            data=b'', fatal=False, note='Checking if video has any comments...') or {} 
+            has_more = traverse_obj(comment_json, ('has_more'))
+            commentsnum = len(comment_json['comments'])
+    
+            for i in range(has_more) and commentsnum != 0:
+                if i == 0:
+                    comment_data = comment_json
+                    note='Comment downloading completed!'
+                else:
+                    comment_data = self._download_json(
+                        f'https://api-h2.tiktokv.com/aweme/v2/comment/list/?aweme_id={aweme_id}&count=50&forward_page_type=1', 
+                        data=b'', fatal=False, query={'cursor': i + 50}, note='Downloading a page of comments') or {}
+                for comment in comment_data['comments']:
+                    yield {
+                        'id': comment.get('cid'), # comment ID
+                        'alt_id': comment.get('aweme_id'), # "aweme" id, seems to be tiktok's universal id, we might swap them
+                        'text': comment.get('text'),
+                        'like_count': comment.get('digg_count'),
+                        'timestamp': comment.get('create_time'),
+                        'is_pinned': comment.get('author_pin'), # booleen
+                        'is_hidden': comment.get('no_show'), # booleen
+                        'lang': comment.get('comment_language'), # 2 letter language code: en, jp, fr, etc
+                        'text_extra': comment.get('text_extra'), # includes hashtags, most likely same format as in video metadata
+                        'reply_count': comment.get('reply_comment_total'), 
+                        'parent': comment.get('reply_id'), # parent comment if
+                        'parent_reply': comment.get('reply_to_reply_id'), # exclusive to replies to replies
+                        'author_id': comment['user']['uid'], # user id (possibly aweme id)
+                        'author': comment['user']['nickname'], # user nickname
+                        'author_label': comment.get('label_text'),
+                        'author_handle': comment['user']['unique_id'], # user handle, @ultimatemariofan101 for example without the at symbol
+                        'author_thumbnail': comment['user']['avatar_larger']['url_list'][0], 
+                        'author_full_info': comment.get('user'),
+                    }
+                    if self._configuration_arg('no_tiktok_replies') is None:
+                        for comment in traverse_obj(comments):
+                            if comment.get('reply_comment_total') > 0:
+                                get_replies_of_tiktok_comment(self, aweme_id, i)
+
+
 
 
 class TikTokIE(TikTokBaseIE):
@@ -522,7 +594,7 @@ class TikTokIE(TikTokBaseIE):
             'repost_count': int,
             'comment_count': int,
         },
-        'expected_warnings': ['trying feed workaround', 'Unable to find video in feed']
+        'skip': 'This video is unavailable',
     }, {
         # Auto-captions available
         'url': 'https://www.tiktok.com/@hankgreen1/video/7047596209028074758',
@@ -530,18 +602,11 @@ class TikTokIE(TikTokBaseIE):
     }]
 
     def _extract_aweme_app(self, aweme_id):
-        try:
-            aweme_detail = self._call_api('aweme/detail', {'aweme_id': aweme_id}, aweme_id,
-                                          note='Downloading video details', errnote='Unable to download video details').get('aweme_detail')
-            if not aweme_detail:
-                raise ExtractorError('Video not available', video_id=aweme_id)
-        except ExtractorError as e:
-            self.report_warning(f'{e.orig_msg}; trying feed workaround')
-            feed_list = self._call_api('feed', {'aweme_id': aweme_id}, aweme_id,
-                                       note='Downloading video feed', errnote='Unable to download video feed').get('aweme_list') or []
-            aweme_detail = next((aweme for aweme in feed_list if str(aweme.get('aweme_id')) == aweme_id), None)
-            if not aweme_detail:
-                raise ExtractorError('Unable to find video in feed', video_id=aweme_id)
+        feed_list = self._call_api('feed', {'aweme_id': aweme_id}, aweme_id,
+                                   note='Downloading video feed', errnote='Unable to download video feed').get('aweme_list') or []
+        aweme_detail = next((aweme for aweme in feed_list if str(aweme.get('aweme_id')) == aweme_id), None)
+        if not aweme_detail:
+            raise ExtractorError('Unable to find video in feed', video_id=aweme_id)
         return self._parse_aweme_video_app(aweme_detail)
 
     def _real_extract(self, url):
@@ -572,6 +637,7 @@ class TikTokIE(TikTokBaseIE):
 class TikTokUserIE(TikTokBaseIE):
     IE_NAME = 'tiktok:user'
     _VALID_URL = r'https?://(?:www\.)?tiktok\.com/@(?P<id>[\w\.-]+)/?(?:$|[#?])'
+    _WORKING = False
     _TESTS = [{
         'url': 'https://tiktok.com/@corgibobaa?lang=en',
         'playlist_mincount': 45,
@@ -708,6 +774,7 @@ class TikTokBaseListIE(TikTokBaseIE):
 class TikTokSoundIE(TikTokBaseListIE):
     IE_NAME = 'tiktok:sound'
     _VALID_URL = r'https?://(?:www\.)?tiktok\.com/music/[\w\.-]+-(?P<id>[\d]+)[/?#&]?'
+    _WORKING = False
     _QUERY_NAME = 'music_id'
     _API_ENDPOINT = 'music/aweme'
     _TESTS = [{
@@ -731,6 +798,7 @@ class TikTokSoundIE(TikTokBaseListIE):
 class TikTokEffectIE(TikTokBaseListIE):
     IE_NAME = 'tiktok:effect'
     _VALID_URL = r'https?://(?:www\.)?tiktok\.com/sticker/[\w\.-]+-(?P<id>[\d]+)[/?#&]?'
+    _WORKING = False
     _QUERY_NAME = 'sticker_id'
     _API_ENDPOINT = 'sticker/aweme'
     _TESTS = [{
@@ -750,6 +818,7 @@ class TikTokEffectIE(TikTokBaseListIE):
 class TikTokTagIE(TikTokBaseListIE):
     IE_NAME = 'tiktok:tag'
     _VALID_URL = r'https?://(?:www\.)?tiktok\.com/tag/(?P<id>[^/?#&]+)'
+    _WORKING = False
     _QUERY_NAME = 'ch_id'
     _API_ENDPOINT = 'challenge/aweme'
     _TESTS = [{
@@ -922,3 +991,41 @@ class TikTokVMIE(InfoExtractor):
         if self.suitable(new_url):  # Prevent infinite loop in case redirect fails
             raise UnsupportedError(new_url)
         return self.url_result(new_url)
+
+    class TikTokLiveIE(InfoExtractor):
+    _VALID_URL = r'https?://(?:www\.)?tiktok\.com/@(?P<id>[\w\.-]+)/live'
+    IE_NAME = 'tiktok:live'
+
+    _TESTS = [{
+        'url': 'https://www.tiktok.com/@iris04201/live',
+        'only_matching': True,
+    }]
+
+    def _real_extract(self, url):
+        uploader = self._match_id(url)
+        webpage = self._download_webpage(url, uploader, headers={'User-Agent': 'User-Agent:Mozilla/5.0'})
+        room_id = self._html_search_regex(r'snssdk\d*://live\?room_id=(\d+)', webpage, 'room ID', default=None)
+        if not room_id:
+            raise UserNotLive(video_id=uploader)
+        live_info = traverse_obj(self._download_json(
+            'https://www.tiktok.com/api/live/detail/', room_id, query={
+                'aid': '1988',
+                'roomID': room_id,
+            }), 'LiveRoomInfo', expected_type=dict, default={})
+
+        if 'status' not in live_info:
+            raise ExtractorError('Unexpected response from TikTok API')
+        # status = 2 if live else 4
+        if not int_or_none(live_info['status']) == 2:
+            raise UserNotLive(video_id=uploader)
+
+        return {
+            'id': room_id,
+            'title': live_info.get('title') or self._html_search_meta(['og:title', 'twitter:title'], webpage, default=''),
+            'uploader': uploader,
+            'uploader_id': traverse_obj(live_info, ('ownerInfo', 'id')),
+            'creator': traverse_obj(live_info, ('ownerInfo', 'nickname')),
+            'concurrent_view_count': traverse_obj(live_info, ('liveRoomStats', 'userCount'), expected_type=int),
+            'formats': self._extract_m3u8_formats(live_info['liveUrl'], room_id, 'mp4', live=True),
+            'is_live': True,
+        }
